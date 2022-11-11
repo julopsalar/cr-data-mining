@@ -7,6 +7,9 @@ import argparse
 import pandas as pd
 import io
 
+from os.path import exists
+
+
 # Async requests
 async def fetch(url, session):
     async with session.get(url) as response:
@@ -48,7 +51,7 @@ def async_request(tags, token, dst):
 
 # Keys to filter response
 relevant_keys = ['type', 'battleTime', 'gameMode', 'team', 'opponent']
-player_keys = ['name', 'tag', 'crowns', 'cards']
+player_keys = ['name', 'tag', 'crowns', 'cards', 'elixirLeaked']
 card_keys = ['name']
 
 def parse_battle(data):
@@ -58,12 +61,27 @@ def parse_battle(data):
     # Get values from keys for player and opponent
     team_info = [team[0][pk] for pk in player_keys]
     op_info = [op[0][pk] for pk in player_keys]
+    # Get clan info
+    if 'clan' in team[0].keys():
+        team_clan = [team[0]['clan']['name'], team[0]['clan']['tag']]
+    else:
+        team_clan = ['No Clan', 'None']
+
+    if 'clan' in op[0].keys():
+        op_clan = [op[0]['clan']['name'], op[0]['clan']['tag']]
+    else:
+        op_clan = ['No Clan', 'None']
+    
     # Parse the deck
-    team_info[-1] = ';'.join(sorted([c[ck] for c in (team_info[-1]) for ck in card_keys]))
-    op_info[-1] = ';'.join(sorted([c[ck] for c in (op_info[-1]) for ck in card_keys]))
+    team_data = (sorted([c[ck] for c in (team_info[-2]) for ck in card_keys]))
+    op_data = (sorted([c[ck] for c in (op_info[-2]) for ck in card_keys]))
+    team_info[-2] = ';'.join(team_data)
+    op_info[-2] = ';'.join(op_data)
     # Merge all and format as csv
     total_data = [btype, time, mode['name']]
+    total_data.extend(team_clan)
     total_data.extend(team_info)
+    total_data.extend(op_clan)
     total_data.extend(op_info)
     return (','.join(list(map(str,total_data))))
     
@@ -95,12 +113,15 @@ with open(args.players, 'r+') as tags_file:
 data = []
 async_request(tags, token, data)
 
-historic_data = pd.read_csv(args.output)
+# If file doesnt exist, there is no data to compare
+if exists(args.output):
+    historic_data = pd.read_csv(args.output)
+else:
+    historic_data = pd.read_csv('headers.csv')
+
 # Drop empty responses
 data = [d for d in data if d]
 new_data = pd.read_csv(io.StringIO('\n'.join(data)), names=list(historic_data))
 
 # Combine old and new data, dropping repeated rows
 pd.concat([historic_data, new_data]).drop_duplicates().to_csv(args.output, index=False)
-
-#python.exe .\battles_mining.py -p tags.txt -t .\token.txt
